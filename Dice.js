@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-
+// Dice class
 class Dice {
     constructor(values) {
         if (!values.every(Number.isInteger) || values.length !== 6) {
@@ -14,58 +14,49 @@ class Dice {
     }
 }
 
-
-class FairRandomGenerator {
-    constructor(range) {
-        this.range = range;
-        this.key = crypto.randomBytes(32);
-    }
-
-    generateNumber() {
-        const number = crypto.randomInt(this.range);
-        const hmac = crypto.createHmac('sha3-256', this.key).update(number.toString()).digest('hex');
-        return { number, hmac };
-    }
-
-    revealKey() {
-        return this.key.toString('hex');
-    }
-}
-
-
+// Shuffle function
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = crypto.randomInt(i + 1);
         [array[i], array[j]] = [array[j], array[i]];
     }
+    return array;
 }
 
-
+// Game logic
 class NonTransitiveDiceGame {
     constructor(diceConfigs) {
         if (diceConfigs.length < 3) {
             throw new Error("At least three dice configurations are required.");
         }
-     
-        this.originalDiceConfigs = diceConfigs;
         this.dice = diceConfigs.map(config => new Dice(config.split(',').map(Number)));
     }
 
     start() {
         console.log("\nWelcome to the Non-Transitive Dice Game!");
+        console.log("Let's determine who gets to select their dice first.");
 
-      
+        this.determineFirstMove();
+    }
 
-        const firstMoveGenerator = new FairRandomGenerator(2);
-        const firstMoveData = firstMoveGenerator.generateNumber();
+    determineFirstMove() {
+        const hmacKey = crypto.randomBytes(32).toString('hex');
+        const computerChoice = crypto.randomInt(2);
+        const hmac = crypto
+            .createHmac('sha256', hmacKey)
+            .update(computerChoice.toString())
+            .digest('hex');
 
-        console.log("\nLet's determine who makes the first move.");
-        console.log(`I selected a random value in the range 0..1 (HMAC=${firstMoveData.hmac}).`);
+        console.log(`I selected a random value in the range 0..1 (HMAC=${hmac}).`);
         console.log("Try to guess my selection.");
-        console.log("0 - 0\n1 - 1\nX - exit\n? - help");
+        console.log("0 - 0");
+        console.log("1 - 1");
+        console.log("X - exit");
+        console.log("? - help");
 
         process.stdin.once('data', (data) => {
             const input = data.toString().trim();
+
             if (input === 'X') {
                 console.log("Goodbye!");
                 process.exit(0);
@@ -76,28 +67,31 @@ class NonTransitiveDiceGame {
 
             const userGuess = parseInt(input, 10);
             if (isNaN(userGuess) || userGuess < 0 || userGuess > 1) {
-                console.log("Invalid input. Try again.");
-                return this.start();
+                console.log("Invalid selection. Try again.");
+                return this.determineFirstMove();
             }
 
-            const computerSelection = firstMoveData.number;
-            const key = firstMoveGenerator.revealKey();
-            console.log(`My selection: ${computerSelection} (KEY=${key}).`);
+            console.log(`My selection: ${computerChoice} (KEY=${hmacKey}).`);
 
-            if (userGuess === computerSelection) {
-                console.log("\nYou guessed correctly! You make the first move.");
+            if (userGuess === computerChoice) {
+                console.log("\nYou guessed correctly! You get to choose your dice first.");
                 this.userSelectDice();
             } else {
-                console.log("\nI make the first move.");
+                console.log("\nYou guessed wrong. I get to choose my dice first.");
                 this.computerSelectDice();
             }
         });
     }
 
+    computerSelectDice() {
+        this.computerDice = this.dice[crypto.randomInt(this.dice.length)];
+        console.log(`I choose the dice: [${this.computerDice.values.join(',')}].`);
+        this.dice = this.dice.filter(d => d !== this.computerDice);
+        this.userSelectDice();
+    }
+
     userSelectDice() {
-      
-        shuffleArray(this.dice);
-        console.log("\nI make the first move and choose the dice. Choose your dice:");
+        console.log("\nChoose your dice:");
 
         this.dice.forEach((dice, index) => {
             console.log(`${index} - ${dice.values.join(", ")}`);
@@ -123,65 +117,68 @@ class NonTransitiveDiceGame {
 
             this.userDice = this.dice[userSelection];
             console.log(`You choose the dice: [${this.userDice.values.join(',')}]`);
+            this.dice.splice(userSelection, 1);
 
-            this.dice.splice(userSelection, 1);  
-            this.computerDice = this.dice[crypto.randomInt(this.dice.length)];
-            console.log(`I choose the dice: [${this.computerDice.values.join(',')}]`);
-
-            this.performThrows();
+            this.userThrow();
         });
     }
 
-    computerSelectDice() {
-        const computerChoice = crypto.randomInt(this.dice.length);
-        this.computerDice = this.dice[computerChoice];
-        console.log(`I choose the dice: [${this.computerDice.values.join(',')}]`);
+    userThrow() {
+        console.log("\nIt's time for your throw.");
+        const shuffledUserNumbers = shuffleArray([0, 1, 2, 3, 4, 5]);
+        shuffledUserNumbers.forEach((num, index) => {
+            console.log(`${index} - ${num}`);
+        });
 
-        this.dice.splice(computerChoice, 1);
-        this.userSelectDice();
-    }
-
-    performThrows() {
-        console.log("\nIt's time for my throw.");
-
-        const throwGenerator = new FairRandomGenerator(6);
-        const throwData = throwGenerator.generateNumber();
-
-        console.log(`I selected a random value in the range 0..5 (HMAC=${throwData.hmac}).`);
-        console.log("Add your number modulo 6.");
-        console.log("0 - 0\n1 - 1\n2 - 2\n3 - 3\n4 - 4\n5 - 5\nX - exit\n? - help");
+        console.log("Choose your roll (0-5):");
 
         process.stdin.once('data', (data) => {
-            const input = data.toString().trim();
-            if (input === 'X') {
-                console.log("Goodbye!");
-                process.exit(0);
-            } else if (input === '?') {
-                this.showHelp();
-                return;
-            }
-
-            const userSelection = parseInt(input, 10);
-            if (isNaN(userSelection) || userSelection < 0 || userSelection > 5) {
+            const input = parseInt(data.toString().trim(), 10);
+            if (isNaN(input) || input < 0 || input > 5) {
                 console.log("Invalid selection. Try again.");
-                return this.performThrows();
+                return this.userThrow();
             }
 
-            const userThrow = (userSelection + throwData.number) % 6;
-            console.log(`Your selection: ${userSelection}`);
-            console.log(`My selection (modulo 6): ${userThrow}`);
+            this.userRoll = shuffledUserNumbers[input];
+            console.log(`You selected: ${this.userRoll}`);
 
-            this.checkWinner(userThrow);
+            this.computerThrow();
         });
     }
 
-    checkWinner(userThrow) {
-        const computerThrow = this.computerDice.roll();
-        console.log(`My roll is: ${computerThrow}`);
+    computerThrow() {
+        console.log("\nIt's time for my throw.");
+        const shuffledComputerNumbers = shuffleArray([0, 1, 2, 3, 4, 5]);
+        shuffledComputerNumbers.forEach((num, index) => {
+            console.log(`${index} - ${num}`);
+        });
 
-        if (userThrow > computerThrow) {
+        console.log("Select a number (0-5) to determine my roll:");
+
+        process.stdin.once('data', (data) => {
+            const input = parseInt(data.toString().trim(), 10);
+            if (isNaN(input) || input < 0 || input > 5) {
+                console.log("Invalid selection. Try again.");
+                return this.computerThrow();
+            }
+
+            this.computerRoll = shuffledComputerNumbers[input];
+            console.log(`I selected: ${this.computerRoll}`);
+
+            this.checkWinner();
+        });
+    }
+
+    checkWinner() {
+        const userDiceRoll = this.userDice.values[this.userRoll];
+        const computerDiceRoll = this.computerDice.values[this.computerRoll];
+
+        console.log(`\nYour dice roll is: ${userDiceRoll}`);
+        console.log(`My dice roll is: ${computerDiceRoll}`);
+
+        if (userDiceRoll > computerDiceRoll) {
             console.log("\nYou win!");
-        } else if (userThrow < computerThrow) {
+        } else if (userDiceRoll < computerDiceRoll) {
             console.log("\nI win!");
         } else {
             console.log("\nIt's a tie!");
@@ -195,9 +192,7 @@ class NonTransitiveDiceGame {
         process.stdin.once('data', (data) => {
             const input = data.toString().trim().toUpperCase();
             if (input === 'Y') {
-        
-                this.dice = this.originalDiceConfigs.map(config => new Dice(config.split(',').map(Number)));
-                this.start(); 
+                this.start();
             } else {
                 console.log("Goodbye!");
                 process.exit(0);
@@ -209,14 +204,13 @@ class NonTransitiveDiceGame {
         console.log("\nHelp:");
         console.log("This is a non-transitive dice game where you and the computer select dice and roll to compete.");
         console.log("Each dice has six values, and the winner is determined based on the rolls.");
-        console.log("To ensure fairness, dice are selected and throws are generated using cryptographic randomness.");
-        console.log("After selecting your dice, you roll them, and the results are compared.");
-        console.log("You can choose the dice by selecting a number from 0..5 after they have been shuffled.");
+        console.log("You select your roll from a shuffled list of numbers (0-5), and the computer does the same.");
+        console.log("Good luck!");
         this.start();
     }
 }
 
-
+// Main Execution
 const args = process.argv.slice(2);
 if (args.length < 3) {
     console.error("Error: You must provide at least 3 dice configurations (e.g., 2,2,4,4,9,9 6,8,1,1,8,6 7,5,3,7,5,3).");
